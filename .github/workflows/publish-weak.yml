@@ -127,11 +127,11 @@ jobs:
         run: |
           if [ "${{ steps.detect.outputs.type }}" = "flutter" ]; then
             echo "pub=flutter pub" >> $GITHUB_OUTPUT
-            echo "analyze=flutter analyze --fatal-infos --fatal-warnings" >> $GITHUB_OUTPUT
+            echo "analyze=flutter analyze" >> $GITHUB_OUTPUT
             echo "test=flutter test" >> $GITHUB_OUTPUT
           else
             echo "pub=dart pub" >> $GITHUB_OUTPUT
-            echo "analyze=dart analyze --fatal-infos --fatal-warnings" >> $GITHUB_OUTPUT
+            echo "analyze=dart analyze" >> $GITHUB_OUTPUT
             echo "test=dart test --enable-vm-service -p vm " >> $GITHUB_OUTPUT
           fi
           echo "format=dart format --output=none --set-exit-if-changed lib" >> $GITHUB_OUTPUT
@@ -156,7 +156,8 @@ jobs:
         working-directory: ${{ steps.tag.outputs.dir }}
         run: |
           ${{ steps.cmds.outputs.pub }} get
-          ${{ steps.cmds.outputs.analyze }}
+          ${{ steps.cmds.outputs.analyze }} --fatal-infos --fatal-warnings  lib bin
+          ${{ steps.cmds.outputs.analyze }} test example
 
       - name: Clean lock file before stable SDK
         working-directory: ${{ steps.tag.outputs.dir }}
@@ -187,7 +188,8 @@ jobs:
         working-directory: ${{ steps.tag.outputs.dir }}
         run: |
           ${{ steps.cmds.outputs.pub }} get
-          ${{ steps.cmds.outputs.analyze }}
+          ${{ steps.cmds.outputs.analyze }} --fatal-infos --fatal-warnings  lib bin
+          ${{ steps.cmds.outputs.analyze }} test example
 
       - name: Dart format check
         if: steps.tag.outputs.release == 'true'
