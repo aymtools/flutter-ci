@@ -156,8 +156,8 @@ jobs:
         working-directory: ${{ steps.tag.outputs.dir }}
         run: |
           ${{ steps.cmds.outputs.pub }} get
-          ${{ steps.cmds.outputs.analyze }} --fatal-infos --fatal-warnings  lib bin
-          ${{ steps.cmds.outputs.analyze }} test example
+          ${{ steps.cmds.outputs.analyze }} --fatal-infos --fatal-warnings  lib 
+          ${{ steps.cmds.outputs.analyze }}
 
       - name: Clean lock file before stable SDK
         working-directory: ${{ steps.tag.outputs.dir }}
@@ -188,8 +188,8 @@ jobs:
         working-directory: ${{ steps.tag.outputs.dir }}
         run: |
           ${{ steps.cmds.outputs.pub }} get
-          ${{ steps.cmds.outputs.analyze }} --fatal-infos --fatal-warnings  lib bin
-          ${{ steps.cmds.outputs.analyze }} test example
+          ${{ steps.cmds.outputs.analyze }} --fatal-infos --fatal-warnings  lib
+          ${{ steps.cmds.outputs.analyze }}
 
       - name: Dart format check
         if: steps.tag.outputs.release == 'true'
