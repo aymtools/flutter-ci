@@ -119,11 +119,16 @@ jobs:
       - name: Analyze (min Dart)
         run: dart analyze --fatal-infos --fatal-warnings
 
+      - name: Clean previous Dart SDK zip
+        run: rm -f /home/runner/work/_temp/dartsdk-linux-x64-release.zip
+
       # ---------------------------------
       # 7 Stable Dart 校验
       # ---------------------------------
       - name: Setup Dart (stable)
         uses: dart-lang/setup-dart@v1
+        with:
+          channel: stable
 
       - name: Pub get (stable)
         run: dart pub get

@@ -151,7 +151,6 @@ jobs:
         uses: dart-lang/setup-dart@v1
         with:
           sdk: ${{ steps.min_sdk.outputs.version }}
-          clean: true
 
       - name: Analyze (minimum SDK)
         working-directory: ${{ steps.tag.outputs.dir }}
@@ -174,12 +173,15 @@ jobs:
         with:
           channel: stable
 
+      - name: Clean previous Dart SDK zip
+        if: steps.detect.outputs.type == 'dart'
+        run: rm -f /home/runner/work/_temp/dartsdk-linux-x64-release.zip
+
       - name: Setup stable Dart SDK
         if: steps.detect.outputs.type == 'dart'
         uses: dart-lang/setup-dart@v1
         with:
           channel: stable
-          clean: true
 
       - name: Analyze (stable SDK)
         working-directory: ${{ steps.tag.outputs.dir }}
