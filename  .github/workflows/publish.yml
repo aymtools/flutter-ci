@@ -1,0 +1,176 @@
+name: Dart / Flutter Package CI
+
+on:
+  workflow_call:
+    inputs:
+      release:
+        description: "Whether this run is a release publish"
+        type: boolean
+        default: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ---------------------------------
+      # 0 Checkout
+      # ---------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ---------------------------------
+      # 1 自动检测 package 类型（非 monorepo）
+      # ---------------------------------
+      - name: Detect package type
+        id: detect
+        run: |
+          if grep -q "sdk: flutter" pubspec.yaml; then
+            echo "type=flutter" >> $GITHUB_OUTPUT
+          else
+            echo "type=dart" >> $GITHUB_OUTPUT
+          fi
+
+          echo "Detected package type: ${{ steps.detect.outputs.type }}"
+
+      # ---------------------------------
+      # 2 tag 格式校验
+      #   - release=true  → 只允许正式版
+      #   - release=false → 允许 prerelease
+      # ---------------------------------
+      - name: Validate tag format
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+
+          if [ "${{ inputs.release }}" = "true" ]; then
+            REGEX='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          else
+            REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-(dev|pre|beta|rc)\.[0-9]+)?$'
+          fi
+
+          if [[ ! "$TAG" =~ $REGEX ]]; then
+            echo "::error::Invalid tag format: $TAG"
+            exit 1
+          fi
+
+      # ---------------------------------
+      # 3 pubspec ↔ tag 版本强校验
+      # ---------------------------------
+      - name: Validate pubspec version matches tag
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          PUBSPEC_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+
+          echo "Tag version:      $TAG_VERSION"
+          echo "Pubspec version:  $PUBSPEC_VERSION"
+
+          if [ "$TAG_VERSION" != "$PUBSPEC_VERSION" ]; then
+            echo "::error::Tag version does not match pubspec.yaml"
+            exit 1
+          fi
+
+      # ---------------------------------
+      # 4 解析最低 SDK / Flutter 版本
+      # ---------------------------------
+      - name: Extract minimum SDK version
+        id: min_sdk
+        run: |
+          if [ "${{ steps.detect.outputs.type }}" = "flutter" ]; then
+            LINE=$(grep -E "flutter:\s*'>=" pubspec.yaml | head -n 1)
+          else
+            LINE=$(grep -E "sdk:\s*'>=" pubspec.yaml | head -n 1)
+          fi
+
+          if [ -z "$LINE" ]; then
+            echo "::error::Missing environment constraint"
+            exit 1
+          fi
+
+          MIN=$(echo "$LINE" | sed -E 's/.*>=([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$MIN" >> $GITHUB_OUTPUT
+          echo "Minimum SDK: $MIN"
+
+      # ---------------------------------
+      # 5 Setup SDK（Flutter / Dart）
+      # ---------------------------------
+      - name: Setup Flutter
+        if: steps.detect.outputs.type == 'flutter'
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ steps.min_sdk.outputs.version }}
+          channel: stable
+          cache: true
+
+      - name: Setup Dart
+        if: steps.detect.outputs.type == 'dart'
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ steps.min_sdk.outputs.version }}
+
+      # ---------------------------------
+      # 6 统一 Runner 命令（方案一）
+      # ---------------------------------
+      - name: Setup package commands
+        id: cmds
+        run: |
+          if [ "${{ steps.detect.outputs.type }}" = "flutter" ]; then
+            echo "pub=flutter pub" >> $GITHUB_OUTPUT
+            echo "analyze=flutter analyze --fatal-infos --fatal-warnings" >> $GITHUB_OUTPUT
+            echo "test=flutter test" >> $GITHUB_OUTPUT
+          else
+            echo "pub=dart pub" >> $GITHUB_OUTPUT
+            echo "analyze=dart analyze --fatal-infos --fatal-warnings" >> $GITHUB_OUTPUT
+            echo "test=dart test" >> $GITHUB_OUTPUT
+          fi
+
+      # ---------------------------------
+      # 7 Pub get
+      # ---------------------------------
+      - name: Pub get
+        run: ${{ steps.cmds.outputs.pub }} get
+
+      # ---------------------------------
+      # 8 Analyze
+      # ---------------------------------
+      - name: Analyze
+        run: ${{ steps.cmds.outputs.analyze }}
+
+      # ---------------------------------
+      # 9 Dependency 校验（禁止 git / path）
+      # ---------------------------------
+      - name: Validate dependencies
+        run: |
+          ${{ steps.cmds.outputs.pub }} deps --json > deps.json
+          if jq -e '.packages[] | select(.source=="git" or .source=="path")' deps.json > /dev/null; then
+            echo "::error::Found git/path dependencies"
+            jq -r '.packages[] | select(.source=="git" or .source=="path") | "- \(.name) (\(.source))"' deps.json
+            exit 1
+          fi
+
+      # ---------------------------------
+      # 10 Format
+      # ---------------------------------
+      - name: Dart format check
+        run: dart format --output=none --set-exit-if-changed .
+
+      # ---------------------------------
+      # 11 Test
+      # ---------------------------------
+      - name: Run tests
+        run: ${{ steps.cmds.outputs.test }}
+
+      # ---------------------------------
+      # 12 Publish dry-run（仅 release）
+      # ---------------------------------
+      - name: Publish dry-run
+        if: inputs.release
+        run: ${{ steps.cmds.outputs.pub }} publish --dry-run
+
+      # ---------------------------------
+      # 13 Publish（正式发布）
+      # ---------------------------------
+      - name: Publish to pub.dev
+        if: inputs.release
+        run: ${{ steps.cmds.outputs.pub }} publish

@@ -1,0 +1,166 @@
+#中心仓（CI 仓）
+# .github/workflows/flutter-publish.yml
+name: Flutter Publish Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      release:
+        description: "Whether this is a release publish"
+        type: boolean
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ---------------------------------
+      # 0 Checkout（需要完整历史）
+      # ---------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ---------------------------------
+      # 1 Tag 格式校验
+      # ---------------------------------
+      - name: Validate tag format
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+
+          if [ "${{ inputs.release }}" = "true" ]; then
+            REGEX='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          else
+            REGEX='^v[0-9]+\.[0-9]+\.[0-9]+-(pre|dev|beta|rc)\.[0-9]+$'
+          fi
+
+          if [[ ! "$TAG" =~ $REGEX ]]; then
+            echo "::error::Invalid tag: $TAG"
+            exit 1
+          fi
+
+      # ---------------------------------
+      # 2 release 必须来自 main
+      # ---------------------------------
+      - name: Validate tag is from main
+        if: ${{ inputs.release }}
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          git fetch origin main
+          TAG_COMMIT=$(git rev-list -n 1 "$TAG")
+
+          if ! git merge-base --is-ancestor "$TAG_COMMIT" origin/main; then
+            echo "::error::Release tag must be created from main branch"
+            exit 1
+          fi
+
+      # ---------------------------------
+      # 3 tag ↔ pubspec 版本一致
+      # ---------------------------------
+      - name: Validate pubspec version matches tag
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          PUBSPEC_VERSION=$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml)
+
+          echo "Tag version:      $TAG_VERSION"
+          echo "Pubspec version:  $PUBSPEC_VERSION"
+
+          if [ "$TAG_VERSION" != "$PUBSPEC_VERSION" ]; then
+            echo "::error::pubspec.yaml version does not match tag"
+            exit 1
+          fi
+
+      # ---------------------------------
+      # 4 CHANGELOG 校验（仅 release）
+      # ---------------------------------
+      - name: Validate CHANGELOG
+        if: ${{ inputs.release }}
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+
+          if [ ! -f CHANGELOG.md ]; then
+            echo "::error::CHANGELOG.md not found"
+            exit 1
+          fi
+
+          if ! grep -q "^## $VERSION" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md missing version $VERSION"
+            exit 1
+          fi
+
+      # ---------------------------------
+      # 5 解析最低 Flutter SDK
+      # ---------------------------------
+      - name: Extract minimum Flutter version
+        id: min_flutter
+        run: |
+          LINE=$(grep -E "flutter:.*>=" pubspec.yaml | head -n 1)
+
+          if [ -z "$LINE" ]; then
+            echo "::error::Missing environment:flutter constraint"
+            exit 1
+          fi
+
+          MIN=$(echo "$LINE" | sed -E 's/.*>=([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$MIN" >> $GITHUB_OUTPUT
+          echo "Minimum Flutter: $MIN"
+
+      # ---------------------------------
+      # 6 最低 Flutter：兼容性校验
+      # ---------------------------------
+      - name: Setup Flutter (minimum)
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ steps.min_flutter.outputs.version }}
+          channel: stable
+
+      - name: Pub get (min Flutter)
+        run: flutter pub get
+
+      - name: Analyze (min Flutter)
+        run: flutter analyze --fatal-infos --fatal-warnings
+
+      # ---------------------------------
+      # 7 Stable Flutter：规范校验
+      # ---------------------------------
+      - name: Setup Flutter (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Pub get (stable)
+        run: flutter pub get
+
+      - name: Validate dependencies (no git/path)
+        run: |
+          flutter pub deps --json > deps.json
+          if jq -e '.packages[] | select(.source=="git" or .source=="path")' deps.json > /dev/null; then
+            echo "::error::Found git/path dependencies"
+            jq -r '.packages[] | select(.source=="git" or .source=="path") | "- \(.name) (\(.source))"' deps.json
+            exit 1
+          fi
+
+      - name: Dart format check (lib/)
+        run: dart format --output=none --set-exit-if-changed lib
+
+      # ---------------------------------
+      # 8 执行 test
+      # ---------------------------------
+      - name: Flutter test
+        run: flutter test
+
+      # ---------------------------------
+      # 9 发布前检查
+      # ---------------------------------
+      - name: Publish dry-run
+        if: ${{ inputs.release }}
+        run: flutter pub publish --dry-run
+
+      # ---------------------------------
+      # 10 正式发布（仅 release）
+      # ---------------------------------
+      - name: Publish to pub.dev
+        if: ${{ inputs.release }}
+        run: flutter pub publish
