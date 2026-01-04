@@ -1,7 +1,7 @@
 自动校验发布流程
 
 ```yml
-# 预发布 vX.Y.Z-(pre/dev/beta/rc) 只检查不发布
+# 预发布 vX.Y.Z-(pre/dev/beta/rc).X 只检查不发布
 # 正式发布 vX.Y.Z 会执行所有检查并使用OIDC的方式发布
 
 
