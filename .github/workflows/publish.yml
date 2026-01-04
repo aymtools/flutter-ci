@@ -158,6 +158,12 @@ jobs:
           ${{ steps.cmds.outputs.pub }} get
           ${{ steps.cmds.outputs.analyze }}
 
+      - name: Clean lock file before stable SDK
+        working-directory: ${{ steps.tag.outputs.dir }}
+        run: |
+          rm -f pubspec.lock
+          rm -rf .dart_tool
+
       # =====================================================================
       # 7 Stable SDK analyze & test
       # =====================================================================

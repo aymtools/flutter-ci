@@ -19,11 +19,3 @@ jobs:
   publish:
     uses: aymtools/flutter-ci/.github/workflows/publish.yml@v2
 ```
-
-package最低版本限制 只能识别下面样式
-
-```yml
-environment:
-  sdk: '>=3.4.0 <4.0.0'
-  flutter: '>=3.22.0'
-```
