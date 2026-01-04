@@ -1,0 +1,214 @@
+name: Dart / Flutter Package CI (Auto Mono / Single)
+
+on:
+  workflow_call:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      # ---------------------------------
+      # 0 Checkout
+      # ---------------------------------
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ---------------------------------
+      # 0.1 Install yq
+      # ---------------------------------
+      - name: Install yq
+        run: sudo snap install yq
+
+      # ---------------------------------
+      # 1 Parse tag & auto detect package
+      # ---------------------------------
+      - name: Parse tag
+        id: tag
+        run: |
+          TAG="${{ github.ref_name }}"
+
+          # monorepo: pkg-name-vX.Y.Z
+          if [[ "$TAG" =~ ^([a-zA-Z0-9_-]+)-v([0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
+            PKG="${BASH_REMATCH[1]}"
+            VERSION="${BASH_REMATCH[2]}"
+            DIR="packages/$PKG"
+          # single repo: vX.Y.Z
+          elif [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
+            PKG=""
+            VERSION="${BASH_REMATCH[1]}"
+            DIR="."
+          else
+            echo "::error::Invalid tag format: $TAG"
+            exit 1
+          fi
+
+          if [[ "$VERSION" =~ - ]]; then
+            RELEASE=false
+          else
+            RELEASE=true
+          fi
+
+          if [ ! -f "$DIR/pubspec.yaml" ]; then
+            echo "::error::pubspec.yaml not found in $DIR"
+            exit 1
+          fi
+
+          echo "package=$PKG" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "dir=$DIR" >> $GITHUB_OUTPUT
+          echo "release=$RELEASE" >> $GITHUB_OUTPUT
+
+          echo "📦 Package : ${PKG:-root}"
+          echo "📁 Dir     : $DIR"
+          echo "🏷 Version : $VERSION"
+          echo "🚀 Release : $RELEASE"
+
+      # ---------------------------------
+      # 2 校验 pubspec ↔ tag
+      # ---------------------------------
+      - name: Validate pubspec version
+        working-directory: ${{ steps.tag.outputs.dir }}
+        run: |
+          PUBSPEC_VERSION=$(yq '.version' pubspec.yaml)
+          if [ "$PUBSPEC_VERSION" != "${{ steps.tag.outputs.version }}" ]; then
+            echo "::error::Tag version does not match pubspec.yaml"
+            exit 1
+          fi
+
+      # ---------------------------------
+      # 3 Detect Dart / Flutter
+      # ---------------------------------
+      - name: Detect package type
+        id: detect
+        working-directory: ${{ steps.tag.outputs.dir }}
+        run: |
+          FLUTTER=$(yq '.environment.flutter' pubspec.yaml)
+          if [ "$FLUTTER" != "null" ]; then
+            echo "type=flutter" >> $GITHUB_OUTPUT
+          else
+            echo "type=dart" >> $GITHUB_OUTPUT
+          fi
+
+      # ---------------------------------
+      # 4 Extract minimum SDK
+      # ---------------------------------
+      - name: Extract minimum SDK
+        id: min_sdk
+        working-directory: ${{ steps.tag.outputs.dir }}
+        run: |
+          if [ "${{ steps.detect.outputs.type }}" = "flutter" ]; then
+            CONSTRAINT=$(yq '.environment.flutter' pubspec.yaml)
+            KIND="Flutter"
+          else
+            CONSTRAINT=$(yq '.environment.sdk' pubspec.yaml)
+            KIND="Dart"
+          fi
+
+          if [ -z "$CONSTRAINT" ] || [ "$CONSTRAINT" = "null" ]; then
+            echo "::error::Missing environment $KIND constraint"
+            exit 1
+          fi
+
+          MIN=$(echo "$CONSTRAINT" | sed -E 's/.*>=([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$MIN" >> $GITHUB_OUTPUT
+          echo "🔽 Minimum $KIND SDK: $MIN"
+
+      # ---------------------------------
+      # 5 Setup command aliases
+      # ---------------------------------
+      - name: Setup commands
+        id: cmds
+        run: |
+          if [ "${{ steps.detect.outputs.type }}" = "flutter" ]; then
+            echo "pub=flutter pub" >> $GITHUB_OUTPUT
+            echo "analyze=flutter analyze --fatal-infos --fatal-warnings" >> $GITHUB_OUTPUT
+            echo "test=flutter test" >> $GITHUB_OUTPUT
+          else
+            echo "pub=dart pub" >> $GITHUB_OUTPUT
+            echo "analyze=dart analyze --fatal-infos --fatal-warnings" >> $GITHUB_OUTPUT
+            echo "test=dart test --enable-vm-service -p vm " >> $GITHUB_OUTPUT
+          fi
+          echo "format=dart format --output=none --set-exit-if-changed lib" >> $GITHUB_OUTPUT
+
+      # =====================================================================
+      # 6 Minimum SDK analyze
+      # =====================================================================
+      - name: Setup minimum Flutter SDK
+        if: steps.detect.outputs.type == 'flutter'
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ steps.min_sdk.outputs.version }}
+          channel: stable
+
+      - name: Setup minimum Dart SDK
+        if: steps.detect.outputs.type == 'dart'
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ steps.min_sdk.outputs.version }}
+
+      - name: Analyze (minimum SDK)
+        working-directory: ${{ steps.tag.outputs.dir }}
+        run: |
+          ${{ steps.cmds.outputs.pub }} get
+          ${{ steps.cmds.outputs.analyze }}
+
+      - name: Clean lock file before stable SDK
+        working-directory: ${{ steps.tag.outputs.dir }}
+        run: |
+          rm -f pubspec.lock
+          rm -rf .dart_tool
+
+      # =====================================================================
+      # 7 Stable SDK analyze & test
+      # =====================================================================
+      - name: Setup stable Flutter SDK
+        if: steps.detect.outputs.type == 'flutter'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Setup stable Dart SDK
+        if: steps.detect.outputs.type == 'dart'
+        uses: dart-lang/setup-dart@v1
+
+      - name: Analyze (stable SDK)
+        working-directory: ${{ steps.tag.outputs.dir }}
+        run: |
+          ${{ steps.cmds.outputs.pub }} get
+          ${{ steps.cmds.outputs.analyze }}
+
+      - name: Dart format check
+        if: steps.tag.outputs.release == 'true'
+        working-directory: ${{ steps.tag.outputs.dir }}
+        run: ${{ steps.cmds.outputs.format }}
+
+      # ---------------------------------
+      # 8 Test (stable)
+      # ---------------------------------
+      - name: Run tests
+        working-directory: ${{ steps.tag.outputs.dir }}
+        run: ${{ steps.cmds.outputs.test }}
+
+      # ---------------------------------
+      # 9 Publish (release only)
+      # ---------------------------------
+      - name: Authenticate with pub.dev
+        if: steps.tag.outputs.release == 'true'
+        working-directory: ${{ steps.tag.outputs.dir }}
+        run: dart pub token add https://pub.dev --oidc
+
+      - name: Publish dry-run
+        if: steps.tag.outputs.release == 'true'
+        working-directory: ${{ steps.tag.outputs.dir }}
+        run: ${{ steps.cmds.outputs.pub }} publish --dry-run
+
+      - name: Publish
+        if: steps.tag.outputs.release == 'true'
+        working-directory: ${{ steps.tag.outputs.dir }}
+        run: ${{ steps.cmds.outputs.pub }} publish
