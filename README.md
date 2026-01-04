@@ -3,7 +3,7 @@
 ```yml
 # 预发布 vX.Y.Z-(pre/dev/beta/rc).X 只检查不发布
 # 正式发布 vX.Y.Z 会执行所有检查并使用OIDC的方式发布
-
+name: Publish to pub.dev
 
 on:
   push:
@@ -11,10 +11,13 @@ on:
       - 'v*.*.*'
       - 'v*.*.*-*.*'
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   publish:
-    uses: aymtools/futter-ci/workflows/publish.yml@main
-
+    uses: aymtools/flutter-ci/.github/workflows/publish.yml@v2
 ```
 
 package最低版本限制 只能识别下面样式

@@ -20,6 +20,12 @@ jobs:
           fetch-depth: 0
 
       # ---------------------------------
+      # 0.1 Install yq
+      # ---------------------------------
+      - name: Install yq
+        run: sudo snap install yq
+
+      # ---------------------------------
       # 1 Parse tag & auto detect package
       # ---------------------------------
       - name: Parse tag
@@ -64,12 +70,12 @@ jobs:
           echo "🚀 Release : $RELEASE"
 
       # ---------------------------------
-      # 2 Validate pubspec ↔ tag version
+      # 2 校验 pubspec ↔ tag
       # ---------------------------------
       - name: Validate pubspec version
         working-directory: ${{ steps.tag.outputs.dir }}
         run: |
-          PUBSPEC_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          PUBSPEC_VERSION=$(yq '.version' pubspec.yaml)
           if [ "$PUBSPEC_VERSION" != "${{ steps.tag.outputs.version }}" ]; then
             echo "::error::Tag version does not match pubspec.yaml"
             exit 1
@@ -82,7 +88,8 @@ jobs:
         id: detect
         working-directory: ${{ steps.tag.outputs.dir }}
         run: |
-          if grep -q "sdk: flutter" pubspec.yaml; then
+          FLUTTER=$(yq '.environment.flutter' pubspec.yaml)
+          if [ "$FLUTTER" != "null" ]; then
             echo "type=flutter" >> $GITHUB_OUTPUT
           else
             echo "type=dart" >> $GITHUB_OUTPUT
@@ -90,29 +97,26 @@ jobs:
 
       # ---------------------------------
       # 4 Extract minimum SDK
-      #   - Dart   → environment.sdk
-      #   - Flutter→ environment.flutter
       # ---------------------------------
       - name: Extract minimum SDK
         id: min_sdk
         working-directory: ${{ steps.tag.outputs.dir }}
         run: |
           if [ "${{ steps.detect.outputs.type }}" = "flutter" ]; then
-            LINE=$(grep -E "flutter:\s*\"?>=" pubspec.yaml | head -n 1)
+            CONSTRAINT=$(yq '.environment.flutter' pubspec.yaml)
             KIND="Flutter"
           else
-            LINE=$(grep -E "sdk:\s*\"?>=" pubspec.yaml | head -n 1)
+            CONSTRAINT=$(yq '.environment.sdk' pubspec.yaml)
             KIND="Dart"
           fi
 
-          if [ -z "$LINE" ]; then
+          if [ -z "$CONSTRAINT" ] || [ "$CONSTRAINT" = "null" ]; then
             echo "::error::Missing environment $KIND constraint"
             exit 1
           fi
 
-          MIN=$(echo "$LINE" | sed -E 's/.*>=([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          MIN=$(echo "$CONSTRAINT" | sed -E 's/.*>=([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$MIN" >> $GITHUB_OUTPUT
-
           echo "🔽 Minimum $KIND SDK: $MIN"
 
       # ---------------------------------
