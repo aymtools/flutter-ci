@@ -151,6 +151,7 @@ jobs:
         uses: dart-lang/setup-dart@v1
         with:
           sdk: ${{ steps.min_sdk.outputs.version }}
+          clean: true
 
       - name: Analyze (minimum SDK)
         working-directory: ${{ steps.tag.outputs.dir }}
@@ -176,6 +177,9 @@ jobs:
       - name: Setup stable Dart SDK
         if: steps.detect.outputs.type == 'dart'
         uses: dart-lang/setup-dart@v1
+        with:
+          channel: stable
+          clean: true
 
       - name: Analyze (stable SDK)
         working-directory: ${{ steps.tag.outputs.dir }}
