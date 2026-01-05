@@ -1,8 +1,11 @@
 自动校验发布流程
 
+
+- 预发布 vX.Y.Z-(pre/dev/beta/rc).X 只检查不发布
+- 正式发布 vX.Y.Z 会执行所有检查并使用OIDC的方式发布
+
+dart package
 ```yml
-# 预发布 vX.Y.Z-(pre/dev/beta/rc).X 只检查不发布
-# 正式发布 vX.Y.Z 会执行所有检查并使用OIDC的方式发布
 name: Publish to pub.dev
 
 on:
@@ -11,11 +14,28 @@ on:
       - 'v*.*.*'
       - 'v*.*.*-*.*'
 
-permissions:
-  contents: read
-  id-token: write
+jobs:
+  publish:
+    permissions:
+      contents: read
+      id-token: write
+    uses: aymtools/flutter-ci/.github/workflows/dart-publish.yml@v3
+```
+
+flutter package
+```yml
+name: Publish to pub.dev
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - 'v*.*.*-*.*'
 
 jobs:
   publish:
-    uses: aymtools/flutter-ci/.github/workflows/publish.yml@v2
+    permissions:
+      contents: read
+      id-token: write
+    uses: aymtools/flutter-ci/.github/workflows/flutter-publish.yml@v3
 ```
