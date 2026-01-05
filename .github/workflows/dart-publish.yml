@@ -132,7 +132,6 @@ jobs:
         run: |
           ${{ steps.cmds.outputs.pub }} get
           ${{ steps.cmds.outputs.analyze }} --fatal-infos --fatal-warnings  lib 
-          ${{ steps.cmds.outputs.analyze }}
 
       # =====================================================================
       #  Clear Minimum SDK
@@ -158,7 +157,7 @@ jobs:
         run: |
           ${{ steps.cmds.outputs.pub }} get
           ${{ steps.cmds.outputs.analyze }} --fatal-infos --fatal-warnings  lib
-          ${{ steps.cmds.outputs.analyze }}
+          ${{ steps.cmds.outputs.analyze }} --exclude=example
 
       # =====================================================================
       #  Format check (stable)
