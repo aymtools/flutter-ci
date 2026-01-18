@@ -206,10 +206,6 @@ jobs:
       # ---------------------------------
       # 9 Publish (release only)
       # ---------------------------------
-      - name: Authenticate with pub.dev
-        if: steps.tag.outputs.release == 'true'
-        working-directory: ${{ steps.tag.outputs.dir }}
-        run: dart pub token add https://pub.dev --oidc
 
       - name: Publish dry-run
         if: steps.tag.outputs.release == 'true'
