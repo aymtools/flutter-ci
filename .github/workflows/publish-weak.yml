@@ -233,4 +233,4 @@ jobs:
       - name: Publish
         if: steps.tag.outputs.release == 'true'
         working-directory: ${{ steps.tag.outputs.dir }}
-        run: ${{ steps.cmds.outputs.pub }} publish
+        run: ${{ steps.cmds.outputs.pub }} publish --force
