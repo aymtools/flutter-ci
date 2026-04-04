@@ -121,6 +121,19 @@ jobs:
           echo "test=flutter test " >> $GITHUB_OUTPUT
           echo "format=dart format --output=none --set-exit-if-changed lib" >> $GITHUB_OUTPUT
 
+      - name: Gen ci_analysis_options
+        run: |
+          if [ -f "analysis_options.yaml" ]; then
+            mv analysis_options.yaml analysis_options.yaml.bak
+          fi
+          echo "include: analysis_options.yaml.bak" > analysis_options.yaml
+          echo "analyzer:" >> analysis_options.yaml
+          echo "  exclude:" >> analysis_options.yaml
+          echo "    - 'example/**'" >> analysis_options.yaml
+          echo "    - 'test/**'" >> analysis_options.yaml
+          echo "    - '**/*.g.dart'" >> analysis_options.yaml
+          echo "    - '**/*.freezed.dart'" >> analysis_options.yaml
+
       # =====================================================================
       #  Setup minimum Dart SDK
       # =====================================================================
@@ -137,7 +150,7 @@ jobs:
         working-directory: ${{ steps.tag.outputs.dir }}
         run: |
           ${{ steps.cmds.outputs.pub }} get
-          dart analyze lib --no-fatal-warnings
+          ${{ steps.cmds.outputs.analyze }} --no-fatal-warnings
 
       # =====================================================================
       #  Clear cache
@@ -163,8 +176,7 @@ jobs:
         working-directory: ${{ steps.tag.outputs.dir }}
         run: |
           ${{ steps.cmds.outputs.pub }} get
-          ${{ steps.cmds.outputs.analyze }} --fatal-infos --fatal-warnings  lib
-          ${{ steps.cmds.outputs.analyze }}
+          ${{ steps.cmds.outputs.analyze }} --fatal-infos --fatal-warnings 
 
       # =====================================================================
       #  Format check (stable)
@@ -196,6 +208,13 @@ jobs:
           if ! grep -q "^## ${{ steps.tag.outputs.version }}" CHANGELOG.md; then
             echo "::error::CHANGELOG.md missing version ${{ steps.tag.outputs.version }}"
             exit 1
+          fi
+
+      - name: Restore ci_analysis_options
+        run: |
+          rm analysis_options.yaml
+          if [ -f "analysis_options.yaml.bak" ]; then
+            mv analysis_options.yaml.bak analysis_options.yaml
           fi
 
       # ---------------------------------
