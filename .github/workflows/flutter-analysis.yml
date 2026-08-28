@@ -71,7 +71,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sdk: ${{ json(needs.get-sdk-matrix.outputs.sdk_matrix) }}
+        sdk: ${{ fromJSON(needs.get-sdk-matrix.outputs.sdk_matrix) }}
     
     defaults:
       run:
