@@ -23,7 +23,7 @@ jobs:
       sdk_matrix: ${{ steps.set-matrix.outputs.sdk_matrix }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install yq
         run: sudo snap install yq
@@ -74,7 +74,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install yq
         run: sudo snap install yq
