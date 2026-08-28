@@ -70,7 +70,7 @@ jobs:
       # 正式版专项校验 (仅当 is_release 为 true 时运行)
       # ==========================================================
       
-      - name: [Release Only] Verify Main Branch
+      - name: "[Release Only] Verify Main Branch"
         if: steps.info.outputs.is_release == 'true'
         run: |
           if ! git branch -r --contains ${{ github.sha }} | grep -E "(^|\/)${{ inputs.main_branch_name }}$"; then
@@ -78,7 +78,7 @@ jobs:
             exit 1
           fi
 
-      - name: [Release Only] Verify Changelog
+      - name: "[Release Only] Verify Changelog"
         if: steps.info.outputs.is_release == 'true'
         run: |
           VERSION=$(yq eval '.version' pubspec.yaml)
