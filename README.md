@@ -24,6 +24,7 @@ graph TD
 ### 1. 代码分析与测试
 - **Dart**: `dart-analysis.yml`
 - **Flutter**: `flutter-analysis.yml`
+- **VM 特性测试**: `dart-vm-service-analysis.yml` (针对需要 VM Service 环境的特定测试)
 - **特性**：
     - **双版本并行**：同时在最低 SDK 和最新稳定版上运行。
     - **严格校验**：稳定版下强制校验格式及 `--fatal-infos`。
@@ -41,11 +42,11 @@ graph TD
 
 ## 如何使用
 
-在你的项目根目录下创建 `.github/workflows/publish.yml`，参考以下极简配置：
+在你的项目根目录下创建 `.github/workflows/ci-cd.yml`，参考以下极简配置：
 
 ### Dart 项目示例
 ```yaml
-name: Publish to pub.dev
+name: Dart Package CI/CD
 
 on:
   push:
@@ -71,7 +72,7 @@ jobs:
 
 ### Flutter 项目示例
 ```yaml
-name: Publish to pub.dev
+name: Flutter Package CI/CD
 
 on:
   push:
@@ -91,4 +92,6 @@ jobs:
       contents: read
       id-token: write
     uses: aymtools/flutter-ci/.github/workflows/flutter-publish.yml@main
+    with:
+      main_branch_name: 'main' # 正式版校验的分支名，默认 main
 ```
