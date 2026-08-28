@@ -1,231 +1,110 @@
-name: Dart Package Publish CI (Auto Mono / Single)
+# 路径：.github/workflows/dart-publish.yml
+# 功能：统一的 Dart 发布工作流。由 Tag 驱动判断正式/预发布，并强制校验 Tag 与 YAML 版本一致性。
+
+name: Reusable Dart Publish
 
 on:
   workflow_call:
+    inputs:
+      main_branch_name:
+        description: '正式分支名称'
+        default: 'main'
+        required: false
+        type: string
+      working_directory:
+        description: '项目所在目录'
+        default: '.'
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   publish:
-    name: 'Publish to pub.dev'
+    name: 🚀 Publish to Pub.dev
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
     env:
-      # 消除 Node 20 弃用警告并确保兼容性
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+    
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
 
     steps:
-      # ---------------------------------
-      #  Checkout
-      # ---------------------------------
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ---------------------------------
-      #  Install yq
-      # ---------------------------------
       - name: Install yq
         run: sudo snap install yq
-      # ---------------------------------
-      #  Parse tag & auto detect package
-      # ---------------------------------
-      - name: Parse tag
-        id: tag
+
+      - name: Parse & Validate Version
+        id: info
         run: |
           TAG="${{ github.ref_name }}"
-
-          # monorepo: pkg-name-vX.Y.Z
-          if [[ "$TAG" =~ ^([a-zA-Z0-9_-]+)-v([0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
-            PKG="${BASH_REMATCH[1]}"
-            VERSION="${BASH_REMATCH[2]}"
-            DIR="packages/$PKG"
-          # single repo: vX.Y.Z
-          elif [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
-            PKG=""
-            VERSION="${BASH_REMATCH[1]}"
-            DIR="."
+          TAG_VERSION=$(echo "$TAG" | sed 's/^v//')
+          YAML_VERSION=$(yq eval '.version' pubspec.yaml)
+          
+          echo "🏷 Tag Version: $TAG_VERSION"
+          echo "📦 YAML Version: $YAML_VERSION"
+          
+          # 1. 强制一致性校验
+          if [ "$TAG_VERSION" != "$YAML_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match pubspec.yaml version ($YAML_VERSION)"
+            exit 1
+          fi
+          
+          # 2. 性质判断：正式版不能包含短横线（SemVer 预发布标识）
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "is_release=true" >> $GITHUB_OUTPUT
+            echo "🎯 识别为正式版本 (Formal Release)"
           else
-            echo "::error::Invalid tag format: $TAG"
+            echo "is_release=false" >> $GITHUB_OUTPUT
+            echo "🚀 识别为预发布版本 (Pre-release)"
+          fi
+
+      # ==========================================================
+      # 正式版专项校验 (仅当 is_release 为 true 时运行)
+      # ==========================================================
+      
+      - name: [Release Only] Verify Main Branch
+        if: steps.info.outputs.is_release == 'true'
+        run: |
+          if ! git branch -r --contains ${{ github.sha }} | grep -E "(^|\/)${{ inputs.main_branch_name }}$"; then
+            echo "::error::正式版标签 [$TAG] 必须在 ${{ inputs.main_branch_name }} 分支上触发！"
             exit 1
           fi
 
-          if [[ "$VERSION" =~ - ]]; then
-            RELEASE=false
-          else
-            RELEASE=true
+      - name: [Release Only] Verify Changelog
+        if: steps.info.outputs.is_release == 'true'
+        run: |
+          VERSION=$(yq eval '.version' pubspec.yaml)
+          if [ ! -f "CHANGELOG.md" ]; then
+            echo "::error::未找到 CHANGELOG.md"
+            exit 1
           fi
-          
-          if [ "$RELEASE" == "false" ]; then
-            REGEX='^v[0-9]+\.[0-9]+\.[0-9]+-(pre|dev|beta|rc)\.[0-9]+$'
-            if [[ ! "$TAG" =~ $REGEX ]]; then
-              echo "::error::Invalid tag: $TAG"
-              exit 1
-            fi
-          fi
-          
-          if [ ! -f "$DIR/pubspec.yaml" ]; then
-            echo "::error::pubspec.yaml not found in $DIR"
+          if ! grep -qE "^## +\[?$VERSION\]?" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md 中缺失版本 [$VERSION] 的二级标题说明！"
             exit 1
           fi
 
-          echo "package=$PKG" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "dir=$DIR" >> $GITHUB_OUTPUT
-          echo "release=$RELEASE" >> $GITHUB_OUTPUT
+      # ==========================================================
+      # 公共发布流程
+      # ==========================================================
 
-          echo "📦 Package : ${PKG:-root}"
-          echo "📁 Dir     : $DIR"
-          echo "🏷 Version : $VERSION"
-          echo "🚀 Release : $RELEASE"
-
-      # ---------------------------------
-      #  校验 pubspec ↔ tag
-      # ---------------------------------
-      - name: Validate pubspec version
-        working-directory: ${{ steps.tag.outputs.dir }}
-        run: |
-          PUBSPEC_VERSION=$(yq '.version' pubspec.yaml)
-          if [ "$PUBSPEC_VERSION" != "${{ steps.tag.outputs.version }}" ]; then
-            echo "::error::Tag version does not match pubspec.yaml"
-            exit 1
-          fi
-
-      # ---------------------------------
-      #  Extract minimum SDK
-      # ---------------------------------
-      - name: Extract minimum SDK
-        id: min_sdk
-        run: |
-          CONSTRAINT=$(yq '.environment.sdk' pubspec.yaml)
-
-          if [ -z "$CONSTRAINT" ] || [ "$CONSTRAINT" = "null" ]; then
-            echo "::error::Missing environment constraint"
-            exit 1
-          fi
-
-          MIN=$(echo "$CONSTRAINT" | sed -E 's/.*>=([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
-          echo "version=$MIN" >> $GITHUB_OUTPUT
-          echo "🔽 Minimum Dart SDK: $MIN"
-
-      # ---------------------------------
-      #  Setup command aliases
-      # ---------------------------------
-      - name: Setup commands
-        id: cmds
-        run: |
-          echo "pub=dart pub" >> $GITHUB_OUTPUT
-          echo "analyze=dart analyze" >> $GITHUB_OUTPUT
-          echo "test=dart test " >> $GITHUB_OUTPUT
-          echo "format=dart format --output=none --set-exit-if-changed lib" >> $GITHUB_OUTPUT
-          
-          # 关键修复：清理可能导致 setup-dart 失败的临时文件
-          rm -f /home/runner/work/_temp/dartsdk-linux-x64-release.zip
-
-
-      - name: Gen ci_analysis_options
-        run: |
-          if [ -f "analysis_options.yaml" ]; then
-            mv analysis_options.yaml analysis_options.yaml.bak
-          fi
-          echo "include: analysis_options.yaml.bak" > analysis_options.yaml
-          echo "analyzer:" >> analysis_options.yaml
-          echo "  exclude:" >> analysis_options.yaml
-          echo "    - 'example/**'" >> analysis_options.yaml
-          echo "    - 'test/**'" >> analysis_options.yaml
-          echo "    - '**/*.g.dart'" >> analysis_options.yaml
-          echo "    - '**/*.freezed.dart'" >> analysis_options.yaml
-
-      # =====================================================================
-      #  Setup minimum Dart SDK
-      # =====================================================================
-      - name: Clean temp before setup
-        run: rm -f /home/runner/work/_temp/dartsdk-linux-x64-release.zip
-        
-      - name: Setup minimum Dart SDK
+      - name: Setup Dart SDK
         uses: dart-lang/setup-dart@v1
         with:
-          sdk: ${{ steps.min_sdk.outputs.version }}
+          sdk: 'stable'
 
-      # =====================================================================
-      #  Minimum SDK analyze
-      # =====================================================================
-      - name: Analyze (minimum SDK)
-        working-directory: ${{ steps.tag.outputs.dir }}
-        run: |
-          ${{ steps.cmds.outputs.pub }} get
-          ${{ steps.cmds.outputs.analyze }} lib --no-fatal-warnings
+      - name: Install dependencies
+        run: dart pub get
 
-      # =====================================================================
-      #  Clear Minimum SDK
-      # =====================================================================
-      - name: Clean lock file and SDK cache
-        working-directory: ${{ steps.tag.outputs.dir }}
-        run: |
-          rm -f pubspec.lock
-          rm -rf .dart_tool
-          rm -f /home/runner/work/_temp/dartsdk-linux-x64-release.zip
+      - name: Publish Dry-run
+        run: dart pub publish --dry-run
 
-      # =====================================================================
-      #  Setup stable Dart SDK
-      # =====================================================================
-      - name: Clean temp before stable setup
-        run: rm -f /home/runner/work/_temp/dartsdk-linux-x64-release.zip
-
-      - name: Setup stable Dart SDK
-        uses: dart-lang/setup-dart@v1
-
-      # =====================================================================
-      #  Stable SDK analyze
-      # =====================================================================
-      - name: Analyze (stable SDK)
-        working-directory: ${{ steps.tag.outputs.dir }}
-        run: |
-          ${{ steps.cmds.outputs.pub }} get
-          ${{ steps.cmds.outputs.analyze }} --fatal-infos --fatal-warnings 
-
-      # =====================================================================
-      #  Format check (stable)
-      # =====================================================================
-      - name: Format check
-        working-directory: ${{ steps.tag.outputs.dir }}
-        run: ${{ steps.cmds.outputs.format }}
-
-      # ---------------------------------
-      #  Test (stable)
-      # ---------------------------------
-      - name: Run tests
-        working-directory: ${{ steps.tag.outputs.dir }}
-        run: ${{ steps.cmds.outputs.test }}
-
-      # ---------------------------------
-      #  CHANGELOG 校验 版本号（仅 release）
-      # ---------------------------------
-      - name: Validate CHANGELOG
-        if: steps.tag.outputs.release == 'true'
-        working-directory: ${{ steps.tag.outputs.dir }}
-        run: |
-
-          if [ ! -f CHANGELOG.md ]; then
-            echo "::error::CHANGELOG.md not found"
-            exit 1
-          fi
-
-          if ! grep -q "^## ${{ steps.tag.outputs.version }}" CHANGELOG.md; then
-            echo "::error::CHANGELOG.md missing version ${{ steps.tag.outputs.version }}"
-            exit 1
-          fi
-
-      # ---------------------------------
-      #  Publish (release only)
-      # ---------------------------------
-
-      - name: Publish dry-run
-        if: steps.tag.outputs.release == 'true'
-        working-directory: ${{ steps.tag.outputs.dir }}
-        run: ${{ steps.cmds.outputs.pub }} publish --dry-run
-
-      - name: Publish
-        if: steps.tag.outputs.release == 'true'
-        working-directory: ${{ steps.tag.outputs.dir }}
-        run: ${{ steps.cmds.outputs.pub }} publish --force
+      - name: Publish to Pub.dev
+        run: dart pub publish --force

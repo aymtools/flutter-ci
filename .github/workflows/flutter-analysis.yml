@@ -1,0 +1,124 @@
+# 路径：.github/workflows/flutter-analysis.yml
+# 功能：并行测试项目最低 Flutter SDK（仅查编译错误）和最新稳定版（严格校验格式/分析，过滤 example 和 test 目录，执行测试）。
+
+name: Reusable Flutter Analysis & Test
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: '项目所在目录'
+        default: '.'
+        required: false
+        type: string
+
+jobs:
+  # ========================================================
+  # 步骤 1：提取最低 Flutter 版本，并组装成 Matrix JSON
+  # ========================================================
+  get-sdk-matrix:
+    name: 🔍 Prepare Flutter Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      sdk_matrix: ${{ steps.set-matrix.outputs.sdk_matrix }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install yq
+        run: sudo snap install yq
+
+      - name: Extract Minimum Flutter Version
+        id: set-matrix
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          # 1. 获取 environment.flutter 约束
+          SDK_RANGE=$(yq eval '.environment.flutter' pubspec.yaml)
+          
+          # 2. 如果没定义 flutter 约束，则回退到检查 sdk 约束或默认 stable
+          if [ "$SDK_RANGE" = "null" ] || [ -z "$SDK_RANGE" ]; then
+            MIN_VERSION="stable"
+          else
+            # 精准提取 >= 后的版本号
+            if [[ "$SDK_RANGE" == *">="* ]]; then
+              MIN_VERSION=$(echo "$SDK_RANGE" | sed -E 's/.*>= *([0-9]+\.[0-9]+\.[0-9]+[^ ]*).*/\1/' | awk '{print $1}')
+            else
+              MIN_VERSION=$(echo "$SDK_RANGE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -n 1)
+            fi
+          fi
+
+          if [ -z "$MIN_VERSION" ] || [ "$MIN_VERSION" = "null" ]; then 
+            MIN_VERSION="stable"
+          fi
+          
+          # 3. 组装 Matrix JSON
+          if [ "$MIN_VERSION" = "stable" ]; then
+            MATRIX_JSON='[{"version": "stable", "is_min": false}]'
+          else
+            MATRIX_JSON="[{\"version\": \"$MIN_VERSION\", \"is_min\": true}, {\"version\": \"stable\", \"is_min\": false}]"
+          fi
+          echo "sdk_matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+
+  # ========================================================
+  # 步骤 2：使用 Matrix 差异化并行执行
+  # ========================================================
+  run_analysis:
+    name: 🧪 Flutter Lint & Test (${{ matrix.sdk.version }})
+    needs: get-sdk-matrix
+    runs-on: ubuntu-latest
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: ${{ json(needs.get-sdk-matrix.outputs.sdk_matrix) }}
+    
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install yq
+        run: sudo snap install yq
+
+      - name: Setup Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ matrix.sdk.version }}
+          channel: 'stable'
+          cache: false # 遵从用户偏好：不使用缓存，每次重新下载
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # 优化：使用 yq 进行深度合并。如果文件不存在，则默认使用 Flutter 推荐规范。
+      - name: Prepare CI Analysis Options
+        run: |
+          if [ ! -f "analysis_options.yaml" ]; then
+            echo "include: package:flutter_lints/flutter.yaml" > analysis_options.yaml
+          fi
+          yq -i '.analyzer.exclude = (.analyzer.exclude // []) + ["example/**", "test/**", "**/*.g.dart", "**/*.freezed.dart"]' analysis_options.yaml
+          yq -i '.analyzer.exclude |= unique' analysis_options.yaml
+          
+          echo "--- Updated CI Analysis Options ---"
+          cat analysis_options.yaml
+
+      - name: Verify formatting
+        if: ${{ matrix.sdk.is_min == false }}
+        run: flutter format --output=none --set-exit-if-changed lib
+
+      # 优化：针对最低 SDK 仅分析 lib 目录
+      - name: Analyze project source (Min SDK - Errors Only)
+        if: ${{ matrix.sdk.is_min == true }}
+        run: flutter analyze lib
+
+      # 优化：Stable SDK 运行严格分析，由于已准备好配置，此处直接运行即可
+      - name: Analyze project source (Stable SDK - Strict & Filtered)
+        if: ${{ matrix.sdk.is_min == false }}
+        run: flutter analyze --fatal-infos --fatal-warnings
+
+      - name: Run tests
+        run: flutter test

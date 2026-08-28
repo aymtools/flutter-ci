@@ -1,0 +1,119 @@
+# 路径：.github/workflows/dart-vm-service-analysis.yml
+# 功能：并行测试项目最低 SDK（仅查编译错误）和最新稳定版（严格校验格式/分析，过滤 example 和 test 目录，执行测试）。
+# 特点：测试时启用 VM Service，适用于需要 VM 特性的测试场景。
+
+name: Reusable Dart Weak Analysis & Test
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: '项目所在目录'
+        default: '.'
+        required: false
+        type: string
+
+jobs:
+  # ========================================================
+  # 步骤 1：提取最低 SDK，并组装成带配置参数的 Matrix JSON
+  # ========================================================
+  get-sdk-matrix:
+    name: 🔍 Prepare SDK Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      sdk_matrix: ${{ steps.set-matrix.outputs.sdk_matrix }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install yq
+        run: sudo snap install yq
+
+      - name: Extract Minimum SDK Version
+        id: set-matrix
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          # 1. 获取原始约束字符串
+          SDK_RANGE=$(yq eval '.environment.sdk' pubspec.yaml)
+
+          # 2. 精准提取最低版本号
+          if [[ "$SDK_RANGE" == *">="* ]]; then
+            MIN_VERSION=$(echo "$SDK_RANGE" | sed -E 's/.*>= *([0-9]+\.[0-9]+\.[0-9]+[^ ]*).*/\1/' | awk '{print $1}')
+          else
+            MIN_VERSION=$(echo "$SDK_RANGE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -n 1)
+          fi
+
+          if [ -z "$MIN_VERSION" ] || [ "$MIN_VERSION" = "null" ]; then 
+            MIN_VERSION="stable"
+          fi
+          
+          # 3. 组装 Matrix JSON
+          if [ "$MIN_VERSION" = "stable" ]; then
+            MATRIX_JSON='[{"version": "stable", "is_min": false}]'
+          else
+            MATRIX_JSON="[{\"version\": \"$MIN_VERSION\", \"is_min\": true}, {\"version\": \"stable\", \"is_min\": false}]"
+          fi
+          echo "sdk_matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+
+  # ========================================================
+  # 步骤 2：使用 Matrix 差异化并行执行
+  # ========================================================
+  run_analysis:
+    name: 🧪 Dart Lint & Test (${{ matrix.sdk.version }})
+    needs: get-sdk-matrix
+    runs-on: ubuntu-latest
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: ${{ json(needs.get-sdk-matrix.outputs.sdk_matrix) }}
+    
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install yq
+        run: sudo snap install yq
+
+      - name: Setup Dart SDK
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ matrix.sdk.version }}
+
+      - name: Install dependencies
+        run: dart pub get
+
+      # 优化：使用 yq 进行深度合并。如果文件不存在，则默认使用 Dart 推荐规范。
+      - name: Prepare CI Analysis Options
+        run: |
+          if [ ! -f "analysis_options.yaml" ]; then
+            echo "include: package:lints/recommended.yaml" > analysis_options.yaml
+          fi
+          yq -i '.analyzer.exclude = (.analyzer.exclude // []) + ["example/**", "test/**", "**/*.g.dart", "**/*.freezed.dart"]' analysis_options.yaml
+          yq -i '.analyzer.exclude |= unique' analysis_options.yaml
+          
+          echo "--- Updated CI Analysis Options ---"
+          cat analysis_options.yaml
+
+      - name: Verify formatting
+        if: ${{ matrix.sdk.is_min == false }}
+        run: dart format --output=none --set-exit-if-changed lib
+
+      # 优化：针对最低 SDK 仅分析 lib 目录
+      - name: Analyze project source (Min SDK - Errors Only)
+        if: ${{ matrix.sdk.is_min == true }}
+        run: dart analyze lib
+
+      # 优化：Stable SDK 运行严格分析，由于已准备好配置，此处直接运行即可
+      - name: Analyze project source (Stable SDK - Strict & Filtered)
+        if: ${{ matrix.sdk.is_min == false }}
+        run: dart analyze --fatal-infos --fatal-warnings
+
+      # 特点：测试时启用 VM Service
+      - name: Run tests
+        run: dart test --enable-vm-service -p vm
