@@ -35,9 +35,9 @@ jobs:
           # 1. 获取 environment.flutter 约束
           SDK_RANGE=$(yq eval '.environment.flutter' pubspec.yaml)
           
-          # 2. 如果没定义 flutter 约束，则回退到检查 sdk 约束或默认 stable
+          # 2. 如果没定义 flutter 约束，则回退到默认 stable (version 设为空)
           if [ "$SDK_RANGE" = "null" ] || [ -z "$SDK_RANGE" ]; then
-            MIN_VERSION="stable"
+            MIN_VERSION=""
           else
             # 精准提取 >= 后的版本号
             if [[ "$SDK_RANGE" == *">="* ]]; then
@@ -47,15 +47,15 @@ jobs:
             fi
           fi
 
-          if [ -z "$MIN_VERSION" ] || [ "$MIN_VERSION" = "null" ]; then 
-            MIN_VERSION="stable"
+          if [ "$MIN_VERSION" = "null" ]; then 
+            MIN_VERSION=""
           fi
           
           # 3. 组装 Matrix JSON
-          if [ "$MIN_VERSION" = "stable" ]; then
-            MATRIX_JSON='[{"version": "stable", "is_min": false}]'
+          if [ -z "$MIN_VERSION" ]; then
+            MATRIX_JSON='[{"version": "", "is_min": false}]'
           else
-            MATRIX_JSON="[{\"version\": \"$MIN_VERSION\", \"is_min\": true}, {\"version\": \"stable\", \"is_min\": false}]"
+            MATRIX_JSON="[{\"version\": \"$MIN_VERSION\", \"is_min\": true}, {\"version\": \"\", \"is_min\": false}]"
           fi
           echo "sdk_matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
 
