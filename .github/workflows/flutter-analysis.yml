@@ -108,7 +108,7 @@ jobs:
 
       - name: Verify formatting
         if: ${{ matrix.sdk.is_min == false }}
-        run: flutter format --output=none --set-exit-if-changed lib
+        run: dart format --output=none --set-exit-if-changed lib
 
       # 优化：针对最低 SDK 仅分析 lib 目录
       - name: Analyze project source (Min SDK - Errors Only)
