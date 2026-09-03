@@ -122,3 +122,13 @@ jobs:
 
       - name: Run tests
         run: flutter test
+
+      # 确保分析完成后还原配置文件
+      - name: Clean up CI Analysis Options
+        if: always()
+        run: |
+          if [ -f "analysis_options.yaml.bak" ]; then
+            mv analysis_options.yaml.bak analysis_options.yaml
+          else
+            git checkout analysis_options.yaml || echo "No changes to restore"
+          fi
