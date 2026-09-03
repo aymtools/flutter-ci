@@ -100,13 +100,13 @@ jobs:
         with:
           sdk: 'stable'
 
-      - name: Ensure clean git working directory
-        run: |
-          git checkout -- . || true
-          git clean -fd || true
-
       - name: Install dependencies
         run: dart pub get
+
+      - name: Ensure clean git working directory
+        run: |
+          git reset --hard HEAD
+          git clean -fd
 
       - name: Publish Dry-run
         run: dart pub publish --dry-run

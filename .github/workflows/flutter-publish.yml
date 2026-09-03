@@ -101,16 +101,13 @@ jobs:
           channel: 'stable'
           cache: false
 
-      - name: 🔍 打印 CI 里的真实改动
-        run: |
-          echo "================ 1. Git Status ================"
-          git status
-          
-          echo "================ 2. Git Diff 内容 ============="
-          git diff
-
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Ensure clean git working directory
+        run: |
+          git reset --hard HEAD
+          git clean -fd
 
       - name: Publish Dry-run
         run: flutter pub publish --dry-run
