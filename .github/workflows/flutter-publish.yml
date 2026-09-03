@@ -101,6 +101,11 @@ jobs:
           channel: 'stable'
           cache: false
 
+      - name: Ensure clean git working directory
+        run: |
+          git checkout -- . || true
+          git clean -fd || true
+
       - name: Install dependencies
         run: flutter pub get
 
