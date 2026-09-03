@@ -95,6 +95,10 @@ jobs:
       # 公共发布流程
       # ==========================================================
 
+      # Set up Dart SDK to provision OIDC token for pub.dev automated publishing
+      - name: Provision OIDC Token for Pub.dev
+        uses: dart-lang/setup-dart@v1
+
       - name: Setup Flutter SDK
         uses: subosito/flutter-action@v2
         with:
