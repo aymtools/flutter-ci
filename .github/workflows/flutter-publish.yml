@@ -101,10 +101,13 @@ jobs:
           channel: 'stable'
           cache: false
 
-      - name: Ensure clean git working directory
+      - name: 🔍 打印 CI 里的真实改动
         run: |
-          git checkout -- . || true
-          git clean -fd || true
+          echo "================ 1. Git Status ================"
+          git status
+          
+          echo "================ 2. Git Diff 内容 ============="
+          git diff
 
       - name: Install dependencies
         run: flutter pub get
