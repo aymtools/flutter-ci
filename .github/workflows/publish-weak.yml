@@ -25,12 +25,6 @@ jobs:
       - uses: dart-lang/setup-dart@e51d8e571e22473a2ddebf0ef8a2123f0ab2c02c
 
       # ---------------------------------
-      # 0.1 Install yq
-      # ---------------------------------
-      - name: Install yq
-        run: sudo snap install yq
-
-      # ---------------------------------
       # 1 Parse tag & auto detect package
       # ---------------------------------
       - name: Parse tag

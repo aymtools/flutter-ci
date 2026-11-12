@@ -77,9 +77,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Install yq
-        run: sudo snap install yq
-
       - name: Setup Dart SDK
         uses: dart-lang/setup-dart@v1
         with:
