@@ -26,9 +26,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Install yq
-        run: sudo snap install yq
-
       - name: Extract Minimum SDK Version
         id: set-matrix
         working-directory: ${{ inputs.working_directory }}
