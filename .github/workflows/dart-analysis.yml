@@ -88,7 +88,7 @@ jobs:
             echo "include: package:lints/recommended.yaml" > analysis_options.yaml
           fi
           # 确保 analyzer.exclude 是一个数组并追加内容
-          yq -i '.analyzer.exclude = (.analyzer.exclude // []) + ["example/**", "test/**", "**/*.g.dart", "**/*.freezed.dart"]' analysis_options.yaml
+          yq -i '.analyzer.exclude = (.analyzer.exclude // []) + ["example/**", "test/**", "build/**", "**/*.g.dart", "**/*.freezed.dart"]' analysis_options.yaml
           # 去重（可选）
           yq -i '.analyzer.exclude |= unique' analysis_options.yaml
           
